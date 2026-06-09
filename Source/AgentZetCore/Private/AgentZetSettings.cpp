@@ -228,7 +228,7 @@ FString UAgentZetDeveloperSettings::GetEffectiveModel() const
 	case EAgentZetProvider::Anthropic:
 	{
 		if (ClaudeModel == EAgentZetClaudeModel::Custom)
-			return CustomModelId.IsEmpty() ? ModelEnumToApiString(EAgentZetClaudeModel::Sonnet_4_6) : CustomModelId;
+			return CustomModelId.IsEmpty() ? ModelEnumToApiString(EAgentZetClaudeModel::Sonnet_4_5) : CustomModelId;
 		return ModelEnumToApiString(ClaudeModel);
 	}
 	case EAgentZetProvider::OpenAI:
@@ -256,7 +256,7 @@ FString UAgentZetDeveloperSettings::GetEffectiveModel() const
 	case EAgentZetProvider::GitHubCopilot:
 		return CopilotModelId.IsEmpty() ? TEXT("gpt-4") : CopilotModelId;
 	default:
-		return ModelEnumToApiString(EAgentZetClaudeModel::Sonnet_4_6);
+		return ModelEnumToApiString(EAgentZetClaudeModel::Sonnet_4_5);
 	}
 }
 
@@ -328,10 +328,12 @@ FString UAgentZetDeveloperSettings::ModelEnumToApiString(EAgentZetClaudeModel Mo
 	switch (Model)
 	{
 	case EAgentZetClaudeModel::Sonnet_4_6:	return TEXT("claude-sonnet-4-6");
-	case EAgentZetClaudeModel::Sonnet_4_5:	return TEXT("claude-sonnet-4-5-20250929");
+	case EAgentZetClaudeModel::Sonnet_4_5:	return TEXT("claude-sonnet-4-5");
+	case EAgentZetClaudeModel::Opus_4_8:	return TEXT("claude-opus-4-8");
+	case EAgentZetClaudeModel::Opus_4_7:	return TEXT("claude-opus-4-7");
 	case EAgentZetClaudeModel::Opus_4_6:	return TEXT("claude-opus-4-6");
-	case EAgentZetClaudeModel::Opus_4_5:	return TEXT("claude-opus-4-5");
-	case EAgentZetClaudeModel::Haiku_4:	return TEXT("claude-haiku-4");
+	case EAgentZetClaudeModel::Opus_4_5:	return TEXT("claude-opus-4-5-20251101");
+	case EAgentZetClaudeModel::Haiku_4:	return TEXT("claude-haiku-4-5-20251001");
 	default: return TEXT("claude-sonnet-4-6");
 	}
 }

@@ -3,6 +3,7 @@
 #include "AgentZetClaudeClient.h"
 #include "AgentZetCoreModule.h"
 #include "AgentZetSettings.h"
+#include "AgentZetModelRegistry.h"
 #include "AgentZetToolResultValidator.h"
 #include "HttpModule.h"
 #include "Interfaces/IHttpResponse.h"
@@ -87,19 +88,29 @@ void FAgentZetClaudeClient::SendMessageInternal(
 	CurrentRequest->SetHeader(TEXT("x-api-key"), ApiKey);
 	CurrentRequest->SetHeader(TEXT("anthropic-version"), AnthropicVersion);
 
-	// Build beta flags — Roo Code pattern: always include fine-grained-tool-streaming,
+	// Build beta flags — Zoo-Code pattern: always include fine-grained-tool-streaming,
 	// conditionally add context-1m and interleaved-thinking based on model + settings.
 	FString BetaFlags = TEXT("fine-grained-tool-streaming-2025-05-14");
 
-	// 1M context beta (matches Roo Code anthropic.ts 'context-1m-2025-08-07' gate)
-	// Models: claude-sonnet-4-6, claude-sonnet-4-5, claude-sonnet-4-20250514, claude-opus-4-6
+	// 1M context beta (matches Zoo-Code anthropic.ts 'context-1m-2025-08-07' gate)
+	// Models with beta-based 1M: sonnet-4-x, opus-4-6
+	// Models with native 1M: opus-4-7, opus-4-8 — NO beta flag needed
 	if (Settings && Settings->ContextWindow == EAgentZetContextWindow::Extended_1M)
 	{
-		if (Model.Contains(TEXT("sonnet-4-6")) || Model.Contains(TEXT("sonnet-4-5")) ||
-			Model.Contains(TEXT("sonnet-4-20250514")) || Model.Contains(TEXT("opus-4-6")))
+		const bool bNeeds1MBeta =
+			Model.Contains(TEXT("sonnet-4-6")) || Model.Contains(TEXT("sonnet-4-5")) ||
+			Model.Contains(TEXT("sonnet-4-20250514")) || Model.Contains(TEXT("opus-4-6"));
+		const bool bHasNative1M =
+			Model.Contains(TEXT("opus-4-7")) || Model.Contains(TEXT("opus-4-8"));
+
+		if (bNeeds1MBeta)
 		{
 			BetaFlags += TEXT(",context-1m-2025-08-07");
 			UE_LOG(LogAgentZet, Log, TEXT("ClaudeClient: 1M context beta enabled for %s"), *Model);
+		}
+		else if (bHasNative1M)
+		{
+			UE_LOG(LogAgentZet, Log, TEXT("ClaudeClient: Native 1M context for %s — no beta flag needed"), *Model);
 		}
 	}
 
@@ -248,21 +259,47 @@ TSharedPtr<FJsonObject> FAgentZetClaudeClient::BuildRequestBody(
 		Body->SetArrayField(TEXT("system"), SystemArray);
 	}
 
-	// Extended Thinking -- with validated constraints
+	// Look up model info for capability checks (binary thinking, temperature)
+	FAgentZetModelInfo ModelInfo = FAgentZetModelRegistry::GetModelInfo(EAgentZetProvider::Anthropic, Model);
+
+	// Extended Thinking — budget-based vs binary (adaptive) thinking
+	// Zoo-Code reasoning.ts: getAnthropicProviderReasoning()
+	// - Binary models (Opus 4.7/4.8): {type: "enabled"} — no budget_tokens
+	// - Budget models (Sonnet 4.x, Opus 4.6, etc.): {type: "enabled", budget_tokens: N}
 	if (Settings && Settings->bEnableExtendedThinking)
 	{
-		// Enforce: budget_tokens >= 1024, max_tokens > budget_tokens
-		int32 SafeBudget = FMath::Max(1024, Settings->ThinkingBudgetTokens);
-		if (MaxTokens <= SafeBudget)
+		TSharedPtr<FJsonObject> ThinkingObj = MakeShared<FJsonObject>();
+
+		if (ModelInfo.bSupportsReasoningBinary)
 		{
-			UE_LOG(LogAgentZet, Warning, TEXT("ClaudeClient: max_tokens (%d) must be > budget_tokens (%d). Adjusting."),
-				MaxTokens, SafeBudget);
+			// Binary/adaptive thinking — model decides its own budget
+			// Opus 4.7/4.8 reject budget_tokens entirely
+			ThinkingObj->SetStringField(TEXT("type"), TEXT("enabled"));
+			UE_LOG(LogAgentZet, Log, TEXT("ClaudeClient: Adaptive thinking enabled for %s (no budget_tokens)"), *Model);
+		}
+		else
+		{
+			// Budget-based thinking — user controls token budget
+			int32 SafeBudget = FMath::Max(1024, Settings->ThinkingBudgetTokens);
+			if (MaxTokens <= SafeBudget)
+			{
+				UE_LOG(LogAgentZet, Warning, TEXT("ClaudeClient: max_tokens (%d) must be > budget_tokens (%d). Adjusting."),
+					MaxTokens, SafeBudget);
+			}
+
+			ThinkingObj->SetStringField(TEXT("type"), TEXT("enabled"));
+			ThinkingObj->SetNumberField(TEXT("budget_tokens"), SafeBudget);
 		}
 
-		TSharedPtr<FJsonObject> ThinkingObj = MakeShared<FJsonObject>();
-		ThinkingObj->SetStringField(TEXT("type"), TEXT("enabled"));
-		ThinkingObj->SetNumberField(TEXT("budget_tokens"), SafeBudget);
 		Body->SetObjectField(TEXT("thinking"), ThinkingObj);
+	}
+
+	// Temperature — skip for models that don't support it (Opus 4.7/4.8)
+	// Zoo-Code model-params.ts: if (model.supportsTemperature === false) { params.temperature = undefined }
+	if (!ModelInfo.bSupportsTemperature)
+	{
+		Body->RemoveField(TEXT("temperature"));
+		UE_LOG(LogAgentZet, Log, TEXT("ClaudeClient: Temperature omitted for %s (not supported)"), *Model);
 	}
 
 	TArray<TSharedPtr<FJsonValue>> MessagesArray = ConvertMessagesToJson(ConversationHistory);

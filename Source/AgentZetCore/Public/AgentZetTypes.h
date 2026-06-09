@@ -225,7 +225,13 @@ enum class EAgentZetClaudeModel : uint8
 	/** Claude Sonnet 4.5 -- balanced performance */
 	Sonnet_4_5		UMETA(DisplayName = "Claude Sonnet 4.5"),
 
-	/** Claude Opus 4.6 -- most capable, highest reasoning */
+	/** Claude Opus 4.8 -- latest flagship, 1M native context, adaptive thinking */
+	Opus_4_8		UMETA(DisplayName = "Claude Opus 4.8"),
+
+	/** Claude Opus 4.7 -- 1M native context, adaptive thinking */
+	Opus_4_7		UMETA(DisplayName = "Claude Opus 4.7"),
+
+	/** Claude Opus 4.6 -- most capable with extended thinking */
 	Opus_4_6		UMETA(DisplayName = "Claude Opus 4.6"),
 
 	/** Claude Opus 4.5 -- multi-modal, deep reasoning */
@@ -291,9 +297,19 @@ struct AGENTZETCORE_API FAgentZetModelInfo
 	UPROPERTY(BlueprintReadOnly, Category = "AgentZet|Model")
 	bool bSupportsReasoningBudget = false;
 
+	/** True if model supports binary reasoning toggle (Anthropic Opus 4.7/4.8 adaptive thinking).
+	 *  When true, the thinking field is sent as {type: "enabled"} WITHOUT budget_tokens. */
+	UPROPERTY(BlueprintReadOnly, Category = "AgentZet|Model")
+	bool bSupportsReasoningBinary = false;
+
 	/** True if model supports reasoning effort levels (OpenAI o-series, Gemini 2.5+, DeepSeek-R1) */
 	UPROPERTY(BlueprintReadOnly, Category = "AgentZet|Model")
 	bool bSupportsReasoningEffort = false;
+
+	/** True if model supports the temperature parameter.
+	 *  False for Anthropic Opus 4.7/4.8 which reject the temperature field. */
+	UPROPERTY(BlueprintReadOnly, Category = "AgentZet|Model")
+	bool bSupportsTemperature = true;
 
 	/** True if model supports Anthropic's 1M context beta flag */
 	UPROPERTY(BlueprintReadOnly, Category = "AgentZet|Model")

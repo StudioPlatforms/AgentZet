@@ -5,7 +5,7 @@
 #include "AgentZetCoreModule.h"
 
 // ---------------------------------------------------------------------------
-// Anthropic models
+// Anthropic models — Updated from Zoo-Code-main packages/types/src/providers/anthropic.ts
 // ---------------------------------------------------------------------------
 TArray<FAgentZetModelInfo> FAgentZetModelRegistry::GetAnthropicModels()
 {
@@ -25,6 +25,7 @@ TArray<FAgentZetModelInfo> FAgentZetModelRegistry::GetAnthropicModels()
 		M.bSupports1MContext = b1M;
 		M.bSupportsImages = true;
 		M.bSupportsPromptCache = true;
+		M.bSupportsTemperature = true;  // default: temperature supported
 		M.InputPricePerMillion = InPrice;
 		M.OutputPricePerMillion = OutPrice;
 		M.CacheWritesPricePerMillion = CacheW;
@@ -36,18 +37,66 @@ TArray<FAgentZetModelInfo> FAgentZetModelRegistry::GetAnthropicModels()
 	Models.Add(Make(TEXT("claude-sonnet-4-6"),         TEXT("Claude Sonnet 4.6"),         200000, 64000, true,  true,  3.0f,  15.0f, 3.75f, 0.3f));
 	Models.Add(Make(TEXT("claude-sonnet-4-5"),         TEXT("Claude Sonnet 4.5"),         200000, 64000, true,  true,  3.0f,  15.0f, 3.75f, 0.3f));
 	Models.Add(Make(TEXT("claude-sonnet-4-20250514"),  TEXT("Claude Sonnet 4 (20250514)"),200000, 64000, true,  true,  3.0f,  15.0f, 3.75f, 0.3f));
-	// Claude Opus 4.x — most capable
+
+	// Claude Opus 4.8 — latest flagship, 1M native context, adaptive (binary) thinking
+	{
+		FAgentZetModelInfo M;
+		M.Provider = EAgentZetProvider::Anthropic;
+		M.ModelId = TEXT("claude-opus-4-8");
+		M.DisplayName = TEXT("Claude Opus 4.8");
+		M.ContextWindow = 1000000;
+		M.MaxOutputTokens = 128000;
+		M.bSupportsReasoningBudget = true;
+		M.bSupportsReasoningBinary = true;
+		M.bSupportsTemperature = false;
+		M.bSupports1MContext = true;
+		M.bSupportsImages = true;
+		M.bSupportsPromptCache = true;
+		M.InputPricePerMillion = 5.0f;
+		M.OutputPricePerMillion = 25.0f;
+		M.CacheWritesPricePerMillion = 6.25f;
+		M.CacheReadsPricePerMillion = 0.5f;
+		Models.Add(M);
+	}
+
+	// Claude Opus 4.7 — 1M native context, adaptive (binary) thinking
+	{
+		FAgentZetModelInfo M;
+		M.Provider = EAgentZetProvider::Anthropic;
+		M.ModelId = TEXT("claude-opus-4-7");
+		M.DisplayName = TEXT("Claude Opus 4.7");
+		M.ContextWindow = 1000000;
+		M.MaxOutputTokens = 128000;
+		M.bSupportsReasoningBudget = true;
+		M.bSupportsReasoningBinary = true;
+		M.bSupportsTemperature = false;
+		M.bSupports1MContext = true;
+		M.bSupportsImages = true;
+		M.bSupportsPromptCache = true;
+		M.InputPricePerMillion = 5.0f;
+		M.OutputPricePerMillion = 25.0f;
+		M.CacheWritesPricePerMillion = 6.25f;
+		M.CacheReadsPricePerMillion = 0.5f;
+		Models.Add(M);
+	}
+
+	// Claude Opus 4.6 — most capable with extended thinking, 200K default + 1M beta
 	Models.Add(Make(TEXT("claude-opus-4-6"),           TEXT("Claude Opus 4.6"),           200000,128000, true,  true,  5.0f,  25.0f, 6.25f, 0.5f));
 	Models.Add(Make(TEXT("claude-opus-4-5-20251101"),  TEXT("Claude Opus 4.5"),           200000, 32000, true,  false, 5.0f,  25.0f, 6.25f, 0.5f));
+	Models.Add(Make(TEXT("claude-opus-4-1-20250805"),  TEXT("Claude Opus 4.1"),           200000, 32000, true,  false,15.0f,  75.0f,18.75f, 1.5f));
 	Models.Add(Make(TEXT("claude-opus-4-20250514"),    TEXT("Claude Opus 4"),             200000, 32000, true,  false,15.0f,  75.0f,18.75f, 1.5f));
-	// Claude Haiku 4.x — fastest, cheapest
+
+	// Claude Haiku 4.x — fastest, cheapest, supports extended thinking
 	Models.Add(Make(TEXT("claude-haiku-4-5-20251001"), TEXT("Claude Haiku 4.5"),          200000, 64000, true,  false, 1.0f,   5.0f, 1.25f, 0.1f));
-	// Claude 3.7 Sonnet (extended thinking variant)
+
+	// Claude 3.7 Sonnet (extended thinking variant, requires interleaved-thinking beta)
 	Models.Add(Make(TEXT("claude-3-7-sonnet-20250219:thinking"), TEXT("Claude 3.7 Sonnet (Thinking)"), 200000, 128000, true, false, 3.0f, 15.0f, 3.75f, 0.3f));
 	Models.Add(Make(TEXT("claude-3-7-sonnet-20250219"), TEXT("Claude 3.7 Sonnet"),       200000,  8192, false, false, 3.0f,  15.0f, 3.75f, 0.3f));
+
 	// Claude 3.5 series
 	Models.Add(Make(TEXT("claude-3-5-sonnet-20241022"), TEXT("Claude 3.5 Sonnet"),       200000,  8192, false, false, 3.0f,  15.0f, 3.75f, 0.3f));
 	Models.Add(Make(TEXT("claude-3-5-haiku-20241022"),  TEXT("Claude 3.5 Haiku"),        200000,  8192, false, false, 1.0f,   5.0f, 1.25f, 0.1f));
+
 	// Claude 3 series
 	Models.Add(Make(TEXT("claude-3-opus-20240229"),     TEXT("Claude 3 Opus"),           200000,  4096, false, false,15.0f,  75.0f,18.75f, 1.5f));
 	Models.Add(Make(TEXT("claude-3-haiku-20240307"),    TEXT("Claude 3 Haiku"),          200000,  4096, false, false, 0.25f,  1.25f, 0.3f, 0.03f));
