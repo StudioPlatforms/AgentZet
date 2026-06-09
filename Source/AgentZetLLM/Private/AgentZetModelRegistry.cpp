@@ -141,37 +141,82 @@ TArray<FAgentZetModelInfo> FAgentZetModelRegistry::GetGeminiModels()
 }
 
 // ---------------------------------------------------------------------------
-// DeepSeek models
+// DeepSeek models — Updated from Zoo-Code-main packages/types/src/providers/deepseek.ts
 // ---------------------------------------------------------------------------
 TArray<FAgentZetModelInfo> FAgentZetModelRegistry::GetDeepSeekModels()
 {
 	TArray<FAgentZetModelInfo> Models;
 
+	// deepseek-v4-flash — fast, cost-efficient, default
+	{
+		FAgentZetModelInfo M;
+		M.Provider = EAgentZetProvider::DeepSeek;
+		M.ModelId = TEXT("deepseek-v4-flash");
+		M.DisplayName = TEXT("DeepSeek V4 Flash");
+		M.ContextWindow = 1000000;
+		M.MaxOutputTokens = 384000;
+		M.bSupportsReasoningEffort = true;
+		M.bSupportsPromptCache = true;
+		M.bSupportsImages = false;
+		M.InputPricePerMillion = 0.14f;
+		M.OutputPricePerMillion = 0.28f;
+		M.CacheWritesPricePerMillion = 0.14f;
+		M.CacheReadsPricePerMillion = 0.0028f;
+		Models.Add(M);
+	}
+
+	// deepseek-v4-pro — strongest V4 for reasoning/coding/agentic workloads
+	{
+		FAgentZetModelInfo M;
+		M.Provider = EAgentZetProvider::DeepSeek;
+		M.ModelId = TEXT("deepseek-v4-pro");
+		M.DisplayName = TEXT("DeepSeek V4 Pro");
+		M.ContextWindow = 1000000;
+		M.MaxOutputTokens = 384000;
+		M.bSupportsReasoningEffort = true;
+		M.bSupportsPromptCache = true;
+		M.bSupportsImages = false;
+		M.InputPricePerMillion = 0.435f;
+		M.OutputPricePerMillion = 0.87f;
+		M.CacheWritesPricePerMillion = 0.435f;
+		M.CacheReadsPricePerMillion = 0.003625f;
+		Models.Add(M);
+	}
+
+	// deepseek-chat — legacy compatibility alias for V4 Flash (non-thinking mode)
+	// TODO(deepseek): Remove after DeepSeek's 2026-07-24 retirement date.
 	{
 		FAgentZetModelInfo M;
 		M.Provider = EAgentZetProvider::DeepSeek;
 		M.ModelId = TEXT("deepseek-chat");
-		M.DisplayName = TEXT("DeepSeek Chat (V3)");
-		M.ContextWindow = 64000;
+		M.DisplayName = TEXT("DeepSeek Chat (Legacy V3 alias)");
+		M.ContextWindow = 128000;
 		M.MaxOutputTokens = 8192;
-		M.bSupportsReasoningBudget = false;
+		M.bSupportsPromptCache = true;
 		M.bSupportsImages = false;
-		M.InputPricePerMillion = 0.27f;
-		M.OutputPricePerMillion = 1.1f;
+		M.InputPricePerMillion = 0.28f;
+		M.OutputPricePerMillion = 0.42f;
+		M.CacheWritesPricePerMillion = 0.28f;
+		M.CacheReadsPricePerMillion = 0.028f;
 		Models.Add(M);
 	}
+
+	// deepseek-reasoner — legacy compatibility alias for V4 Flash (thinking mode)
+	// TODO(deepseek): Remove after DeepSeek's 2026-07-24 retirement date.
 	{
 		FAgentZetModelInfo M;
 		M.Provider = EAgentZetProvider::DeepSeek;
 		M.ModelId = TEXT("deepseek-reasoner");
-		M.DisplayName = TEXT("DeepSeek Reasoner (R1)");
-		M.ContextWindow = 64000;
+		M.DisplayName = TEXT("DeepSeek Reasoner (Legacy R1 alias)");
+		M.ContextWindow = 128000;
 		M.MaxOutputTokens = 8192;
-		M.bSupportsReasoningBudget = true;
-		M.MaxThinkingTokens = 32000;
+		M.bSupportsReasoningEffort = true;
+		M.bSupportsPromptCache = true;
 		M.bSupportsImages = false;
-		M.InputPricePerMillion = 0.55f;
-		M.OutputPricePerMillion = 2.19f;
+		M.InputPricePerMillion = 0.28f;
+		M.OutputPricePerMillion = 0.42f;
+		M.CacheWritesPricePerMillion = 0.28f;
+		M.CacheReadsPricePerMillion = 0.028f;
 		Models.Add(M);
 	}
 
@@ -297,8 +342,9 @@ FAgentZetModelInfo FAgentZetModelRegistry::GetModelInfo(EAgentZetProvider Provid
 		Default.MaxOutputTokens = 65536;
 		break;
 	case EAgentZetProvider::DeepSeek:
-		Default.ContextWindow = 64000;
-		Default.MaxOutputTokens = 8192;
+		Default.ContextWindow = 1000000;
+		Default.MaxOutputTokens = 384000;
+		Default.bSupportsPromptCache = true;
 		break;
 	case EAgentZetProvider::Ollama:
 	case EAgentZetProvider::LMStudio:

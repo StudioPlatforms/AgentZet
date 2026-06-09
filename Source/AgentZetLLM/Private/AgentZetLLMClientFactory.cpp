@@ -143,9 +143,17 @@ TSharedPtr<IAgentZetLLMClient> FAgentZetLLMClientFactory::CreateClientForProvide
 
 	case EAgentZetProvider::DeepSeek:
 	{
-		// deepseek-reasoner supports reasoning effort mapping
-		bool bIsReasoner = ModelId.Contains(TEXT("reasoner"));
-		Client->SetReasoningEffort(bIsReasoner ? EAgentZetReasoningEffort::Medium : EAgentZetReasoningEffort::Disabled);
+		// DeepSeek V4 models (v4-flash, v4-pro) support a thinking toggle:
+		//   - When reasoning effort is not Disabled → thinking: enabled + reasoning_effort
+		//   - When reasoning effort is Disabled → thinking: disabled (non-thinking mode)
+		// Legacy models:
+		//   - deepseek-reasoner: always thinking, reasoning_effort supported
+		//   - deepseek-chat: never thinking, reasoning_effort ignored
+		// The client itself handles the V4 vs legacy branching in BuildChatCompletionsBody()
+		EAgentZetReasoningEffort Effort = Settings->DeepSeekReasoningEffort;
+		Client->SetReasoningEffort(Effort);
+		UE_LOG(LogAgentZet, Log, TEXT("LLMClientFactory: DeepSeek model=%s reasoning_effort=%d"),
+			*ModelId, (int32)Effort);
 		break;
 	}
 	case EAgentZetProvider::OpenRouter:

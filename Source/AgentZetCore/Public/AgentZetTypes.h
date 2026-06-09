@@ -166,7 +166,7 @@ enum class EAgentZetProvider : uint8
 	/** Google Gemini (gemini-2.5-pro, gemini-2.5-flash, gemini-3.x, etc.) */
 	Google			UMETA(DisplayName = "Google (Gemini)"),
 
-	/** DeepSeek (deepseek-chat, deepseek-reasoner) */
+	/** DeepSeek (deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner) */
 	DeepSeek		UMETA(DisplayName = "DeepSeek"),
 
 	/** Mistral AI (mistral-large, codestral, etc.) */
@@ -191,21 +191,28 @@ enum class EAgentZetProvider : uint8
 	GitHubCopilot	UMETA(DisplayName = "GitHub Copilot (Student/Pro)")
 };
 
-/** Reasoning effort level for models that support it (OpenAI o-series, Gemini 2.5+, DeepSeek-R1) */
+/** Reasoning effort level for models that support it (OpenAI o-series, Gemini 2.5+, DeepSeek V4) */
 UENUM(BlueprintType)
 enum class EAgentZetReasoningEffort : uint8
 {
 	/** No reasoning / thinking (use for fast, cheap responses) */
 	Disabled	UMETA(DisplayName = "Disabled"),
 
-	/** Low effort — minimal thinking tokens, fastest */
+	/** Low effort — minimal thinking tokens, fastest.
+	 *  DeepSeek V4: maps to 'high' (V4 only supports high/max). */
 	Low			UMETA(DisplayName = "Low"),
 
-	/** Medium effort — balanced thinking/speed */
+	/** Medium effort — balanced thinking/speed.
+	 *  DeepSeek V4: maps to 'high' (V4 only supports high/max). */
 	Medium		UMETA(DisplayName = "Medium"),
 
-	/** High effort — maximum thinking tokens, slowest/most accurate */
-	High		UMETA(DisplayName = "High")
+	/** High effort — maximum thinking tokens, slowest/most accurate.
+	 *  DeepSeek V4: sent as 'high'. */
+	High		UMETA(DisplayName = "High"),
+
+	/** X-High effort — maximum reasoning depth (DeepSeek V4 'max', OpenAI o-series maximum).
+	 *  Maps to 'max' for DeepSeek V4 API, 'xhigh' for OpenAI o-series. */
+	XHigh		UMETA(DisplayName = "X-High")
 };
 
 /** Available Claude model presets (kept for backward compatibility) */
@@ -423,10 +430,10 @@ struct AGENTZETCORE_API FAgentZetMessage
 	 *  Empty for non-assistant messages. */
 	FString ContentBlocksJson;
 
-	/** DeepSeek reasoning_content from thinking mode (deepseek-reasoner).
+	/** DeepSeek reasoning_content from thinking mode (V4 models and legacy reasoner).
 	 *  Required by DeepSeek API: when thinking mode is enabled, ALL assistant messages
 	 *  must include reasoning_content when replayed in conversation history.
-	 *  Empty for non-DeepSeek providers or non-reasoning models. */
+	 *  Empty for non-DeepSeek providers or non-thinking models. */
 	FString ReasoningContent;
 
 	FAgentZetMessage()

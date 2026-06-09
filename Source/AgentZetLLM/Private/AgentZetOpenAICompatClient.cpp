@@ -119,8 +119,9 @@ FString FAgentZetOpenAICompatClient::ReasoningEffortToString(EAgentZetReasoningE
 	switch (Effort)
 	{
 	case EAgentZetReasoningEffort::Low:    return TEXT("low");
-	case EAgentZetReasoningEffort::High:   return TEXT("high");
 	case EAgentZetReasoningEffort::Medium: return TEXT("medium");
+	case EAgentZetReasoningEffort::High:   return TEXT("high");
+	case EAgentZetReasoningEffort::XHigh:  return TEXT("xhigh");
 	default:                                return TEXT("");
 	}
 }
@@ -1048,7 +1049,18 @@ TSharedPtr<FJsonObject> FAgentZetOpenAICompatClient::BuildChatCompletionsBody(
 {
 	TSharedPtr<FJsonObject> Body = MakeShared<FJsonObject>();
 	Body->SetStringField(TEXT("model"), ModelId);
-	Body->SetNumberField(TEXT("max_tokens"), (double)MaxTokens);
+
+	// DeepSeek V4 recommends max_completion_tokens; other providers use max_tokens.
+	// Both fields are semantically identical but DeepSeek V4 docs prefer the newer name.
+	const bool bIsDeepSeek = (Provider == EAgentZetProvider::DeepSeek);
+	if (bIsDeepSeek)
+	{
+		Body->SetNumberField(TEXT("max_completion_tokens"), (double)MaxTokens);
+	}
+	else
+	{
+		Body->SetNumberField(TEXT("max_tokens"), (double)MaxTokens);
+	}
 
 	// =========================================================================
 	// FIX (Issue #23): LM Studio has a known bug where explicitly sending
@@ -1069,20 +1081,70 @@ TSharedPtr<FJsonObject> FAgentZetOpenAICompatClient::BuildChatCompletionsBody(
 		Body->SetObjectField(TEXT("stream_options"), StreamOpts);
 	}
 
-	// Temperature: o-series models don't support temperature
+	// Temperature: o-series models don't support temperature.
+	// DeepSeek recommended default is 0.3 (DEEP_SEEK_DEFAULT_TEMPERATURE).
 	bool bIsReasoningModel = (ReasoningEffort != EAgentZetReasoningEffort::Disabled);
 	if (!bIsReasoningModel)
 	{
-		Body->SetNumberField(TEXT("temperature"), 0.0);
+		Body->SetNumberField(TEXT("temperature"), bIsDeepSeek ? 0.3 : 0.0);
 	}
 
-	// Reasoning effort (o3, o4-mini, deepseek-reasoner)
-	if (ReasoningEffort != EAgentZetReasoningEffort::Disabled)
+	// =========================================================================
+	// DeepSeek V4 thinking toggle + reasoning effort mapping
+	// Ported from Zoo-Code-main src/api/providers/deepseek.ts
+	//
+	// V4 models (v4-flash, v4-pro) support a thinking toggle:
+	//   - thinking: {type: "enabled"}  when reasoning effort is not Disabled
+	//   - thinking: {type: "disabled"} when reasoning effort is Disabled
+	// Legacy reasoner: always-thinking, no toggle field needed
+	// Legacy chat: never-thinking, no toggle sent
+	//
+	// DeepSeek API only accepts reasoning_effort values "high" and "max":
+	//   - Low/Medium → "high"
+	//   - High       → "high"
+	//   - XHigh      → "max"
+	// =========================================================================
+	if (bIsDeepSeek)
 	{
-		FString EffortStr = ReasoningEffortToString(ReasoningEffort);
-		if (!EffortStr.IsEmpty())
+		const bool bIsV4Model = ModelId.Contains(TEXT("v4"));
+		const bool bIsReasoner = ModelId.Contains(TEXT("reasoner"));
+		const bool bThinkingEnabled = (ReasoningEffort != EAgentZetReasoningEffort::Disabled);
+
+		if (bIsV4Model)
 		{
-			Body->SetStringField(TEXT("reasoning_effort"), EffortStr);
+			// V4 models: send thinking toggle
+			TSharedPtr<FJsonObject> ThinkingObj = MakeShared<FJsonObject>();
+			ThinkingObj->SetStringField(TEXT("type"), bThinkingEnabled ? TEXT("enabled") : TEXT("disabled"));
+			Body->SetObjectField(TEXT("thinking"), ThinkingObj);
+
+			if (bThinkingEnabled)
+			{
+				// Map to DeepSeek's "high" or "max"
+				FString DSEffort = (ReasoningEffort == EAgentZetReasoningEffort::XHigh) ? TEXT("max") : TEXT("high");
+				Body->SetStringField(TEXT("reasoning_effort"), DSEffort);
+			}
+		}
+		else if (bIsReasoner)
+		{
+			// Legacy reasoner: always thinking, but still respect reasoning_effort setting
+			if (bThinkingEnabled)
+			{
+				FString DSEffort = (ReasoningEffort == EAgentZetReasoningEffort::XHigh) ? TEXT("max") : TEXT("high");
+				Body->SetStringField(TEXT("reasoning_effort"), DSEffort);
+			}
+		}
+		// deepseek-chat (legacy non-V4, non-reasoner): no thinking support, skip
+	}
+	else
+	{
+		// Non-DeepSeek providers: standard reasoning_effort (low/medium/high/xhigh)
+		if (ReasoningEffort != EAgentZetReasoningEffort::Disabled)
+		{
+			FString EffortStr = ReasoningEffortToString(ReasoningEffort);
+			if (!EffortStr.IsEmpty())
+			{
+				Body->SetStringField(TEXT("reasoning_effort"), EffortStr);
+			}
 		}
 	}
 
@@ -1245,17 +1307,19 @@ TArray<TSharedPtr<FJsonValue>> FAgentZetOpenAICompatClient::ConvertMessagesToJso
 					MsgObj->SetStringField(TEXT("content"), Msg.Content);
 				}
 	
-				// DeepSeek reasoning_content: when using deepseek-reasoner with thinking mode,
+				// DeepSeek reasoning_content: when using thinking mode (V4 models or legacy reasoner),
 				// ALL assistant messages in history MUST include reasoning_content field.
 				// The API rejects messages missing this field even if empty string.
-				// Ported from Roo Code's convertToR1Format which preserves reasoning_content.
+				// Ported from Zoo-Code-main's convertToR1Format which preserves reasoning_content.
 				// See: https://api-docs.deepseek.com/guides/thinking_mode#tool-calls
 				//
-				// Check both explicit reasoning effort setting AND model ID containing "reasoner"
-				// because DeepSeek enables thinking automatically for reasoner models.
-				bool bIsDeepSeekReasoner = (Provider == EAgentZetProvider::DeepSeek) &&
+				// Detection logic:
+				//   - V4 models (v4-flash, v4-pro): thinking enabled when reasoning effort != Disabled
+				//   - Legacy reasoner: always uses thinking mode
+				//   - Legacy chat: never uses thinking mode
+				bool bIsDeepSeekThinking = (Provider == EAgentZetProvider::DeepSeek) &&
 					(ReasoningEffort != EAgentZetReasoningEffort::Disabled || ModelId.Contains(TEXT("reasoner")));
-				if (bIsDeepSeekReasoner)
+				if (bIsDeepSeekThinking)
 				{
 					// Must always be present — use stored value or empty string
 					MsgObj->SetStringField(TEXT("reasoning_content"), Msg.ReasoningContent);

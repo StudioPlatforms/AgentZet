@@ -44,9 +44,10 @@ UAgentZetDeveloperSettings::UAgentZetDeveloperSettings()
 	GeminiThinkingBudgetTokens = 0;  // 0 = disabled by default. User must opt-in for thinking models.
 	GeminiReasoningEffort = EAgentZetReasoningEffort::Disabled;  // Disabled by default. Prevents sending unknown fields to non-thinking models.
 
-	// --- DeepSeek defaults (from Roo Code deepSeekDefaultModelId) ---
-	DeepSeekModelId = TEXT("deepseek-chat");
+	// --- DeepSeek defaults (from Zoo-Code-main deepSeekDefaultModelId) ---
+	DeepSeekModelId = TEXT("deepseek-v4-flash");
 	DeepSeekBaseUrl = TEXT("https://api.deepseek.com/v1");
+	DeepSeekReasoningEffort = EAgentZetReasoningEffort::High;  // Default to 'high' — matches V4 default reasoning effort
 
 	// --- Mistral defaults (from Roo Code mistralDefaultModelId) ---
 	MistralModelId = TEXT("codestral-latest");
@@ -239,7 +240,7 @@ FString UAgentZetDeveloperSettings::GetEffectiveModel() const
 	case EAgentZetProvider::Google:
 		return GeminiModelId.IsEmpty() ? TEXT("gemini-3.1-pro-preview") : GeminiModelId;
 	case EAgentZetProvider::DeepSeek:
-		return DeepSeekModelId.IsEmpty() ? TEXT("deepseek-chat") : DeepSeekModelId;
+		return DeepSeekModelId.IsEmpty() ? TEXT("deepseek-v4-flash") : DeepSeekModelId;
 	case EAgentZetProvider::Mistral:
 		return MistralModelId.IsEmpty() ? TEXT("codestral-latest") : MistralModelId;
 	case EAgentZetProvider::xAI:
@@ -565,8 +566,11 @@ TArray<FString> UAgentZetDeveloperSettings::GetGeminiModelOptions() const
 
 TArray<FString> UAgentZetDeveloperSettings::GetDeepSeekModelOptions() const
 {
-	// Source: Roo-Code-main/packages/types/src/providers/deepseek.ts (deepSeekModels)
+	// Source: Zoo-Code-main/packages/types/src/providers/deepseek.ts (deepSeekModels)
+	// V4 models are the primary offering; legacy aliases kept for compatibility.
 	return {
+		TEXT("deepseek-v4-flash"),
+		TEXT("deepseek-v4-pro"),
 		TEXT("deepseek-chat"),
 		TEXT("deepseek-reasoner"),
 	};

@@ -200,7 +200,7 @@ public:
 	EAgentZetReasoningEffort GeminiReasoningEffort;
 
 	// ============================================================================
-	// DeepSeek (deepseek-chat, deepseek-reasoner)
+	// DeepSeek (deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner)
 	// ============================================================================
 
 	/** DeepSeek API key. Required when ActiveProvider = DeepSeek. */
@@ -219,6 +219,16 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "API|DeepSeek",
 		meta = (DisplayName = "DeepSeek Base URL"))
 	FString DeepSeekBaseUrl;
+
+	/** Reasoning effort for DeepSeek V4 thinking models (deepseek-v4-flash, deepseek-v4-pro).
+	 *  V4 models support a thinking toggle — when reasoning effort is not Disabled,
+	 *  the thinking field is set to 'enabled' and reasoning_effort is sent.
+	 *  DeepSeek API mapping: Low/Medium → 'high', High → 'high', X-High → 'max'.
+	 *  Legacy models (deepseek-chat, deepseek-reasoner) also use this setting. */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "API|DeepSeek",
+		meta = (DisplayName = "DeepSeek Reasoning Effort",
+		ToolTip = "Controls thinking depth for V4 models (v4-flash, v4-pro) and legacy reasoner.\nDisabled = no thinking (fastest). X-High = maximum reasoning (slowest, most accurate).\nDeepSeek only supports 'high' and 'max' effort levels internally — Low/Medium map to 'high'."))
+	EAgentZetReasoningEffort DeepSeekReasoningEffort;
 
 	// ============================================================================
 	// Mistral AI (mistral-large, codestral, etc.)
