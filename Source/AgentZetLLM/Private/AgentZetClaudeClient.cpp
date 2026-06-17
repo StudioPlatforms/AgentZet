@@ -188,6 +188,50 @@ void FAgentZetClaudeClient::SetMaxTokens(int32 InMaxTokens) { MaxTokens = FMath:
 // Request Body Construction
 // ============================================================================
 
+// Places an Anthropic cache_control: "ephemeral" breakpoint on the last content block of a
+// message. If the message stores its content as a plain string, it is promoted to a single
+// text block so the marker has a block to attach to.
+static void AddCacheControlToLastContentBlock(const TSharedPtr<FJsonObject>& MessageObj)
+{
+	if (!MessageObj.IsValid())
+	{
+		return;
+	}
+
+	auto MakeEphemeral = []()
+	{
+		TSharedPtr<FJsonObject> CacheControl = MakeShared<FJsonObject>();
+		CacheControl->SetStringField(TEXT("type"), TEXT("ephemeral"));
+		return CacheControl;
+	};
+
+	// content as an array of blocks (tool_result blocks, assistant tool_use/text blocks) → last block
+	const TArray<TSharedPtr<FJsonValue>>* ContentArray = nullptr;
+	if (MessageObj->TryGetArrayField(TEXT("content"), ContentArray) && ContentArray && ContentArray->Num() > 0)
+	{
+		const TSharedPtr<FJsonObject>* LastBlock = nullptr;
+		if ((*ContentArray)[ContentArray->Num() - 1]->TryGetObject(LastBlock) && LastBlock)
+		{
+			(*LastBlock)->SetObjectField(TEXT("cache_control"), MakeEphemeral());
+		}
+		return;
+	}
+
+	// content as a plain string → promote to a single cached text block
+	FString ContentString;
+	if (MessageObj->TryGetStringField(TEXT("content"), ContentString))
+	{
+		TSharedPtr<FJsonObject> TextBlock = MakeShared<FJsonObject>();
+		TextBlock->SetStringField(TEXT("type"), TEXT("text"));
+		TextBlock->SetStringField(TEXT("text"), ContentString);
+		TextBlock->SetObjectField(TEXT("cache_control"), MakeEphemeral());
+
+		TArray<TSharedPtr<FJsonValue>> NewContent;
+		NewContent.Add(MakeShared<FJsonValueObject>(TextBlock));
+		MessageObj->SetArrayField(TEXT("content"), NewContent);
+	}
+}
+
 TSharedPtr<FJsonObject> FAgentZetClaudeClient::BuildRequestBody(
 	const TArray<FAgentZetMessage>& ConversationHistory,
 	const FString& SystemPrompt,
@@ -200,16 +244,15 @@ TSharedPtr<FJsonObject> FAgentZetClaudeClient::BuildRequestBody(
 	Body->SetNumberField(TEXT("max_tokens"), MaxTokens);
 	Body->SetBoolField(TEXT("stream"), true);
 
-	// System prompt: use structured array format with cache_control for Anthropic prompt caching.
+	// System prompt: structured array format with cache_control for Anthropic prompt caching.
 	//
-	// BuildSystemPrompt() inserts a ===AgentZet_DYNAMIC_SECTION=== marker between:
-	//   Block 1 (STATIC): role definition + tool use rules + guidelines + custom instructions
-	//   Block 2 (DYNAMIC): project context + security info + recent actions + code structure
-	//
-	// Only Block 1 gets cache_control: "ephemeral" — Anthropic caches the KV pairs for
-	// the prefix and charges 10% on cache hits. The static block (~7K tokens) is identical
-	// across agentic loop iterations, so after the first call it's cached for 5 minutes.
-	// This saves ~90% on ~7K tokens = ~6.3K free tokens per iteration.
+	// As of Phase 2B, BuildSystemPrompt() returns a fully STATIC prompt (no DYNAMIC_SECTION
+	// marker) — per-iteration-volatile context now rides in the environment-details block
+	// appended to the last message. So the common path is the single-block branch below: the
+	// whole tools + system prefix gets one cache_control: "ephemeral" breakpoint and is cached
+	// for 5 minutes (~90% off on hits). A second breakpoint is placed on the conversation
+	// history (see after the messages array is built) so the transcript caches too. The
+	// marker-split branch is retained as a backward-compatible fallback if a marker is present.
 	if (!SystemPrompt.IsEmpty())
 	{
 		static const FString DynamicMarker = TEXT("\n\n===AgentZet_DYNAMIC_SECTION===\n\n");
@@ -310,6 +353,21 @@ TSharedPtr<FJsonObject> FAgentZetClaudeClient::BuildRequestBody(
 	// - Duplicate tool_results
 	// - Orphaned tool_use blocks without results (e.g. from interrupted executions)
 	FAgentZetToolResultValidator::ValidateAndFixToolResults(MessagesArray);
+
+	// PROMPT CACHING (Phase 2B): cache the conversation history so the growing transcript is
+	// reused across agentic-loop iterations instead of re-processed at full price. The LAST
+	// message carries the volatile per-call environment-details block, so the breakpoint goes
+	// on the SECOND-to-last message — everything up to and including it (frozen tools + system
+	// prefix + append-only history) is byte-stable across iterations. Together with the system
+	// breakpoint this uses 2 of the 4 allowed breakpoints. Skipped when there is no prior turn.
+	if (MessagesArray.Num() >= 2)
+	{
+		const TSharedPtr<FJsonObject>* SecondToLastMsg = nullptr;
+		if (MessagesArray[MessagesArray.Num() - 2]->TryGetObject(SecondToLastMsg) && SecondToLastMsg)
+		{
+			AddCacheControlToLastContentBlock(*SecondToLastMsg);
+		}
+	}
 
 	Body->SetArrayField(TEXT("messages"), MessagesArray);
 
