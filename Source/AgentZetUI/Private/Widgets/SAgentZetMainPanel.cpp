@@ -2197,14 +2197,7 @@ FString SAgentZetMainPanel::BuildSystemPrompt() const
         "- For Enhanced Input: search_assets for IA_ actions, then call add_enhanced_input_node, then connect_blueprint_pins to wire Triggered/Started output"
     );
 
-    // ---- Project context ----
-    FString ProjectContext;
-    if (ContextGatherer.IsValid())
-    {
-        ProjectContext = ContextGatherer->BuildContextString();
-    }
-
-    // ---- Security mode ----
+    // ---- Security mode (stable per session — stays in the cached static block) ----
     FString SecurityInfo;
     const UAgentZetDeveloperSettings* Settings = UAgentZetDeveloperSettings::Get();
     if (Settings)
@@ -2223,29 +2216,32 @@ FString SAgentZetMainPanel::BuildSystemPrompt() const
         }
     }
 
-    // ---- Recent actions ----
-    FString RecentActions;
-    if (ExecutionJournal.IsValid() && ExecutionJournal->GetSessionRecordCount() > 0)
-    {
-        RecentActions = ExecutionJournal->BuildRecentActionsSummary(5);
-    }
+    // NOTE (Phase 2B prompt caching): project context, recent actions, and folded code
+    // structure are per-iteration-volatile. They are NO LONGER assembled into the system
+    // prompt here — they now ride in the per-call environment-details block appended to the
+    // last message (see BuildEnvironmentDetailsString). Keeping them out of the system prompt
+    // makes the entire tools + system prefix byte-stable, so it caches across agentic-loop
+    // iterations instead of being invalidated every call. This is the two-layer split
+    // documented in AgentZetEnvironmentDetails.h.
 
-    // ---- Assemble final system prompt ----
-    // PROMPT CACHING OPTIMIZATION (Phase 2A):
-    // Static content comes FIRST to maximize the cacheable prefix for Anthropic prompt caching.
-    // A separator marker (AgentZet_DYNAMIC_SECTION) is inserted between static and dynamic content.
-    // The Claude client splits on this marker and sends two system blocks:
-    //   Block 1 (static, ~7K tokens): cache_control: ephemeral → 90% cache hit rate
-    //   Block 2 (dynamic, ~2-3K tokens): always re-processed (project context, recent actions)
-    // Other providers ignore the marker and send the full prompt as a single string.
-
-    // ---- STATIC PREFIX (cacheable — identical across agentic loop iterations) ----
+    // ---- Assemble the (now fully static) system prompt ----
+    // PROMPT CACHING (Phase 2B):
+    // The system prompt is byte-stable across agentic-loop iterations, so the Claude client
+    // sends it as a single block with cache_control: ephemeral (the whole tools + system
+    // prefix is cached, ~90% off on hits). No DYNAMIC_SECTION marker is emitted anymore;
+    // volatile context lives in the environment-details block instead. Security mode is
+    // stable per session, so it stays here in the cached block.
     FString SystemPrompt = RoleDefinition;
     SystemPrompt += TEXT("\n\n") + ToolUseSection;
     SystemPrompt += TEXT("\n\n") + ToolUseGuidelinesSection;
     SystemPrompt += TEXT("\n\n") + RulesSection;
     SystemPrompt += TEXT("\n\n") + ContextManagementSection;
     SystemPrompt += TEXT("\n\n") + ObjectiveSection;
+
+    if (!SecurityInfo.IsEmpty())
+    {
+        SystemPrompt += TEXT("\n\n") + SecurityInfo;
+    }
 
     // Load any user-provided custom system prompt template (static per session)
     FString CustomPrompt;
@@ -2254,24 +2250,10 @@ FString SAgentZetMainPanel::BuildSystemPrompt() const
         TEXT("Resources"), TEXT("SystemPrompt"), TEXT("AgentZet_system_prompt.txt"));
     if (FFileHelper::LoadFileToString(CustomPrompt, *TemplatePath) && !CustomPrompt.IsEmpty())
     {
-        // Replace {PROJECT_CONTEXT} placeholder — use empty string here since project context is in the dynamic section
-        CustomPrompt = CustomPrompt.Replace(TEXT("{PROJECT_CONTEXT}"), *ProjectContext);
+        // Project context is injected via the dynamic environment-details block, not here,
+        // so the static prompt stays frozen — strip the placeholder.
+        CustomPrompt = CustomPrompt.Replace(TEXT("{PROJECT_CONTEXT}"), TEXT(""));
         SystemPrompt += TEXT("\n\n====\n\nCUSTOM INSTRUCTIONS\n\n") + CustomPrompt;
-    }
-
-    // ---- SEPARATOR: marks boundary between cacheable static prefix and dynamic suffix ----
-    SystemPrompt += TEXT("\n\n===AgentZet_DYNAMIC_SECTION===\n\n");
-
-    // ---- DYNAMIC SUFFIX (changes per call — project state, recent actions) ----
-    if (!SecurityInfo.IsEmpty()) SystemPrompt += SecurityInfo + TEXT("\n\n");
-    if (!ProjectContext.IsEmpty()) SystemPrompt += TEXT("====\n\nPROJECT CONTEXT\n\n") + ProjectContext;
-    if (!RecentActions.IsEmpty()) SystemPrompt += TEXT("\n\n") + RecentActions;
-
-    // Inject folded code structure context if available
-    if (!CachedCodeStructureContext.IsEmpty())
-    {
-        SystemPrompt += TEXT("\n\n====\n\nCODE STRUCTURE (signatures only)\n\n");
-        SystemPrompt += CachedCodeStructureContext;
     }
 
     return SystemPrompt;
@@ -2693,6 +2675,51 @@ FString SAgentZetMainPanel::BuildEnvironmentDetailsString() const
         return FString();
     }
 
+    // PROMPT CACHING (Phase 2B): per-iteration-volatile context lives here — appended to the
+    // last message by FAgentZetChatSession — instead of in the system prompt, so the
+    // tools + system prefix stays frozen and cacheable. See BuildSystemPrompt and the
+    // two-layer design in AgentZetEnvironmentDetails.h.
+    //
+    // These heavy sections are cloud-only: the local (Ollama/LMStudio) path deliberately
+    // suppresses project context to fit an 8K window, and previously never received them
+    // (BuildSystemPrompt returns early for local providers, before the old dynamic suffix).
+    // We mirror that here so local providers keep their token budget.
+    FString DynamicContext;
+
+    const UAgentZetDeveloperSettings* EnvSettings = UAgentZetDeveloperSettings::Get();
+    const bool bIsLocalProvider = EnvSettings &&
+        (EnvSettings->ActiveProvider == EAgentZetProvider::Ollama ||
+         EnvSettings->ActiveProvider == EAgentZetProvider::LMStudio);
+
+    if (!bIsLocalProvider)
+    {
+        // Project context (asset / source overview) — changes as the project is edited.
+        if (ContextGatherer.IsValid())
+        {
+            const FString ProjectContext = ContextGatherer->BuildContextString();
+            if (!ProjectContext.IsEmpty())
+            {
+                DynamicContext += TEXT("====\n\nPROJECT CONTEXT\n\n") + ProjectContext + TEXT("\n\n");
+            }
+        }
+
+        // Recent actions — shifts every agentic-loop iteration as new tool results land.
+        if (ExecutionJournal.IsValid() && ExecutionJournal->GetSessionRecordCount() > 0)
+        {
+            const FString RecentActions = ExecutionJournal->BuildRecentActionsSummary(5);
+            if (!RecentActions.IsEmpty())
+            {
+                DynamicContext += RecentActions + TEXT("\n\n");
+            }
+        }
+
+        // Folded code-structure signatures — updated as files change.
+        if (!CachedCodeStructureContext.IsEmpty())
+        {
+            DynamicContext += TEXT("====\n\nCODE STRUCTURE (signatures only)\n\n") + CachedCodeStructureContext + TEXT("\n\n");
+        }
+    }
+
     const FAgentZetConversationTabState* ActiveTab = GetActiveTabState();
     TArray<FAgentZetTodoItem> CurrentTodos;
     FString TabTitle;
@@ -2707,12 +2734,18 @@ FString SAgentZetMainPanel::BuildEnvironmentDetailsString() const
         }
     }
 
-    return EnvironmentDetails->Build(
+    const FString EditorEnv = EnvironmentDetails->Build(
         ContextUsagePercent,
         CurrentTodos,
         TabTitle,
         AgenticLoopCount
     );
+
+    if (EditorEnv.IsEmpty())
+    {
+        return DynamicContext.TrimEnd();
+    }
+    return DynamicContext + EditorEnv;
 }
 
 // ============================================================================
