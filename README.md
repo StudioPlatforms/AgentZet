@@ -736,4 +736,4 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 - Inspired by [Roo Code](https://github.com/RooVetGit/Roo-Code) — context management, conversation condensation, checkpoint system, diff strategy, and auto-approval patterns were studied and adapted for the UE environment.
 - Built with [Unreal Engine](https://www.unrealengine.com/) by Epic Games.
 - Community [Reddit](https://www.reddit.com/r/AgentZet/)
-- Community [Discord](https://discord.gg/Bk2FHURZ)
+- Community [Discord](https://discord.gg/EPWvWz88)
